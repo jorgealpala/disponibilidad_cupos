@@ -100,6 +100,8 @@ td small{color:var(--muted)}
 #map path.dep.sel{stroke:var(--ink);stroke-width:2.4}
 #map .badge circle{stroke:#fff;stroke-width:1.5}
 #map .badge text{font-size:11px;font-weight:700;fill:#fff;text-anchor:middle;dominant-baseline:central;pointer-events:none}
+#map .badge text.dname{font-size:10.5px;font-weight:600;fill:#14301f;paint-order:stroke;stroke:#fff;stroke-width:3px;stroke-linejoin:round;dominant-baseline:auto}
+#map.nonames .badge text.dname{display:none}
 #map .badge{cursor:pointer}
 #map .lead{stroke:#55606b;stroke-width:1}
 .legend{position:absolute;left:12px;bottom:12px;background:rgba(255,255,255,.92);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;display:grid;gap:4px}
@@ -195,6 +197,7 @@ dialog#admin::backdrop{background:rgba(20,28,38,.55)}
         <button id="zIn" title="Acercar (también rueda del ratón o doble clic)">+</button>
         <button id="zOut" title="Alejar">−</button>
         <button id="zReset" title="Ver todo el país">⤢</button>
+        <button id="zNames" title="Mostrar u ocultar nombres de departamentos" style="font-size:13px">Aa</button>
       </div>
       <div class="legend">
         <div><i style="background:var(--ok)"></i>Con cupos disponibles</div>
@@ -364,7 +367,11 @@ const el = (tag, attrs, parent) => { const e = document.createElementNS(NS, tag)
 const gZoom = el('g', {}, svg);
 const gDeps = el('g', {}, gZoom), gLabels = el('g', {}, gZoom), gInset = el('g', {}, svg);
 const PATHS = {}, BADGES = {};
-const LABEL_SHIFT = { '11001': [-70, 10], '25': [22, -20] };   // separa Bogotá de Cundinamarca
+// ajustes de insignia/nombre en zonas apretadas: [dx, dy, lado del nombre: b=abajo t=arriba l=izq r=der]
+const LABEL_POS = {
+  '11001': [62, 4, 'r'], '25': [-6, -26, 't'], '66': [0, 0, 'l'], '63': [0, 0, 'l'], '73': [10, 4],
+};
+const SHORT = { '11001': 'Bogotá D.C.', '54': 'Norte de|Santander', '76': 'Valle del|Cauca' };
 
 mainGeo.forEach(f => {
   const p = el('path', { d: pathFor(f, proj), class: 'dep', 'data-d': f.c }, gDeps);
@@ -389,10 +396,14 @@ DEPTS.forEach(d => {
   const [x, y] = proj(ringCentroid(big));
   // la insignia se dibuja en coordenadas de pantalla (se contra-escala con el zoom)
   const g = el('g', { class: 'badge', 'data-d': d }, gLabels);
-  const [cx, cy] = LABEL_SHIFT[d] || [0, 0];
-  if (LABEL_SHIFT[d]) el('line', { x1: 0, y1: 0, x2: cx, y2: cy, class: 'lead' }, g);
+  const [cx, cy, side = 'b'] = LABEL_POS[d] || [0, 0];
+  if (Math.hypot(cx, cy) > 16) el('line', { x1: 0, y1: 0, x2: cx, y2: cy, class: 'lead' }, g);
   BADGES[d] = { g, x, y, c: el('circle', { cx, cy, r: 12 }, g), t: el('text', { x: cx, y: cy }, g) };
-  if (LABEL_SHIFT[d]) { const lt = el('text', { x: cx - 16, y: cy, style: 'fill:#1d2733;text-anchor:end;font-weight:600' }, g); lt.textContent = 'Bogotá'; }
+  // nombre del departamento junto a la insignia
+  const lines = (SHORT[d] || NAMES[d]).split('|');
+  const pos = { b: [cx, cy + 25, 'middle'], t: [cx, cy - 16 - 12 * (lines.length - 1), 'middle'], r: [cx + 16, cy + 4 - 6 * (lines.length - 1), 'start'], l: [cx - 16, cy + 4 - 6 * (lines.length - 1), 'end'] }[side];
+  const nm = el('text', { x: pos[0], y: pos[1], class: 'dname', 'text-anchor': pos[2] }, g);
+  lines.forEach((ln, i) => { const ts = el('tspan', { x: pos[0], dy: i ? 12 : 0 }, nm); ts.textContent = ln; });
 });
 
 /* zoom y desplazamiento: rueda del ratón, arrastrar, pellizcar (táctil) y botones */
@@ -436,6 +447,7 @@ const endPtr = e => { ptrs.delete(e.pointerId); pinchD = 0; };
 addEventListener('pointerup', endPtr); addEventListener('pointercancel', endPtr);
 document.getElementById('zIn').onclick = () => zoomAt(W / 2, H / 2, 1.6);
 document.getElementById('zOut').onclick = () => zoomAt(W / 2, H / 2, 1 / 1.6);
+document.getElementById('zNames').onclick = () => svg.classList.toggle('nonames');
 document.getElementById('zReset').onclick = () => { Z = { k: 1, x: 0, y: 0 }; applyZoom(); };
 applyZoom();
 
