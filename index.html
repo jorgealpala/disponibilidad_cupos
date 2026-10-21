@@ -39,6 +39,24 @@ header h1 small{display:block;font-weight:400;color:var(--muted);font-size:12px}
 main{display:grid;grid-template-columns:430px 1fr 360px;gap:12px;padding:12px;min-height:0}
 main.projection{grid-template-columns:1fr 380px}
 main.projection #panel{display:none}
+
+/* Ingreso */
+body.locked{overflow:hidden}
+body.locked > header, body.locked > main{visibility:hidden}
+#login{position:fixed;inset:0;z-index:50;display:none;align-items:center;justify-content:center;padding:16px;background:linear-gradient(135deg,#1f4e8c,#132f55)}
+body.locked #login{display:flex}
+#login form{background:#fff;border-radius:14px;padding:28px 26px;width:min(380px,100%);display:grid;gap:12px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+#login h2{margin:0;font-size:20px}
+#login p{margin:0;color:var(--muted);font-size:13px}
+#login label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;display:grid;gap:3px}
+#login input{padding:9px 10px}
+#login button{padding:9px}
+#loginMsg{min-height:18px;font-size:13px;color:var(--no)}
+#loginMsg.info{color:var(--muted)}
+.userbox{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);padding-left:6px;border-left:1px solid var(--line)}
+.userbox b{color:var(--ink);font-weight:600}
+body.viewer .admin-only{display:none!important}
+body.viewer main{grid-template-columns:1fr 380px}
 section.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0;padding:10px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
 .card h2 .sp{flex:1}
@@ -156,20 +174,31 @@ dialog#admin::backdrop{background:rgba(20,28,38,.55)}
 }
 </style>
 </head>
-<body>
+<body class="locked">
+<div id="login">
+  <form id="loginForm" autocomplete="on">
+    <h2>Concurso Fiscalía 2026</h2>
+    <p>Visor de disponibilidad de cupos. Ingresa con tu correo y contraseña registrados.</p>
+    <label>Correo<input id="lMail" type="email" autocomplete="username" required></label>
+    <label>Contraseña<input id="lPass" type="password" autocomplete="current-password" required></label>
+    <div id="loginMsg"></div>
+    <button class="primary" id="lBtn">Ingresar</button>
+  </form>
+</div>
 <header>
   <h1>Concurso Fiscalía 2026<small>Audiencia de escogencia de vacantes</small></h1>
   <div class="kpis" id="kpis"></div>
   <div class="tools">
-    <button id="bUndo" title="Ctrl+Z">↶ Deshacer</button>
-    <button id="bProj" title="Oculta el panel de control">Modo proyección</button>
-    <button id="bAdmin" title="Editar cupos ofertados (solo administradores)">⚙ Administrar cupos</button>
-    <button id="bReset" class="danger">Reiniciar</button>
+    <button id="bUndo" class="admin-only" title="Ctrl+Z">↶ Deshacer</button>
+    <button id="bProj" class="admin-only" title="Oculta el panel de control">Modo proyección</button>
+    <button id="bAdmin" class="admin-only" title="Editar cupos ofertados (solo administradores)">⚙ Administrar cupos</button>
+    <button id="bReset" class="danger admin-only">Reiniciar</button>
+    <div class="userbox"><span><b id="uMail"></b><br><span id="uRol"></span></span><button id="bLogout" class="sm">Salir</button></div>
   </div>
 </header>
 
 <main id="main">
-  <section class="card" id="panel">
+  <section class="card admin-only" id="panel">
     <h2>Registrar escogencia</h2>
     <form id="reg" autocomplete="off">
       <div class="full"><label for="fName">Nombre de la persona</label><input id="fName" placeholder="Opcional"></div>
@@ -267,10 +296,12 @@ function load() {
 }
 function save() { try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) {} }
 function mutate(fn, msg) {
+  if (role !== 'admin') return toast('Tu usuario es de solo consulta');
   history.push(JSON.stringify(state)); if (history.length > 200) history.shift();
   fn(); save(); render(); if (msg) toast(msg, true);
 }
 function undo() {
+  if (role !== 'admin') return;
   if (!history.length) return toast('No hay acciones para deshacer');
   state = JSON.parse(history.pop()); save(); render(); toast('Acción deshecha');
 }
@@ -715,6 +746,81 @@ document.getElementById('toastUndo').onclick = () => { undo(); document.getEleme
 addEventListener('storage', e => { if (e.key === LS_KEY) { state = load() || fresh(); render(); } });
 
 function render() { syncCupos(); renderKpis(); renderMap(); renderChart(); fillDeptSelect(); fillPlazaSelect(); renderList(); renderRegs(); }
+/* ---------- ingreso: usuarios de la hoja de Google publicada (columnas correo, password, rol) ---------- */
+const USERS_CSV = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQEjTOglEtYAH5Ccb7Ml8NCc019ID5Fi220pDcYBqz3udTfBmW7E7w7aVdAC4Qbbg/pub?gid=337274381&single=true&output=csv';
+const SESSION_KEY = 'visorConcursoFiscalia2026_sesion';
+let role = null;
+
+function parseCSV(text) {
+  const rows = []; let row = [], f = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+    else if (c === '"') q = true;
+    else if (c === ',') { row.push(f); f = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(f); rows.push(row); row = []; f = ''; }
+    else f += c;
+  }
+  if (f || row.length) { row.push(f); rows.push(row); }
+  return rows;
+}
+async function fetchUsers() {
+  const r = await fetch(USERS_CSV + '&t=' + Date.now(), { cache: 'no-store' });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const rows = parseCSV(await r.text());
+  const head = (rows.shift() || []).map(h => h.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''));
+  const col = names => head.findIndex(h => names.includes(h));
+  const iC = col(['correo', 'email', 'e-mail', 'usuario']), iP = col(['password', 'contrasena', 'clave']), iR = col(['rol', 'role', 'perfil']);
+  if (iC < 0 || iP < 0) throw new Error('La hoja no tiene las columnas correo y password');
+  return rows.filter(r => (r[iC] || '').trim()).map(r => ({
+    correo: r[iC].trim().toLowerCase(),
+    password: (r[iP] || '').trim(),
+    rol: iR >= 0 && (r[iR] || '').trim().toLowerCase() === 'admin' ? 'admin' : 'consulta',
+  }));
+}
+function enter(user) {
+  role = user.rol;
+  try { sessionStorage.setItem(SESSION_KEY, JSON.stringify({ correo: user.correo })); } catch (e) {}
+  document.body.classList.remove('locked');
+  document.body.classList.toggle('viewer', role !== 'admin');
+  document.getElementById('uMail').textContent = user.correo;
+  document.getElementById('uRol').textContent = role === 'admin' ? 'Administrador' : 'Solo consulta';
+  render();
+}
+function lock(msg, info) {
+  role = null;
+  try { sessionStorage.removeItem(SESSION_KEY); } catch (e) {}
+  document.body.classList.add('locked'); document.body.classList.remove('viewer');
+  const m = document.getElementById('loginMsg'); m.textContent = msg || ''; m.className = info ? 'info' : '';
+  document.getElementById('lPass').value = '';
+}
+document.getElementById('loginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const mail = document.getElementById('lMail').value.trim().toLowerCase(), pass = document.getElementById('lPass').value.trim();
+  const btn = document.getElementById('lBtn'), msg = document.getElementById('loginMsg');
+  btn.disabled = true; msg.className = 'info'; msg.textContent = 'Verificando…';
+  try {
+    const u = (await fetchUsers()).find(u => u.correo === mail && u.password === pass);
+    if (u) enter(u); else lock('Correo o contraseña incorrectos.');
+  } catch (err) {
+    lock('No se pudo consultar la lista de usuarios. Revisa tu conexión e intenta de nuevo.');
+  }
+  btn.disabled = false;
+});
+document.getElementById('bLogout').onclick = () => lock('Sesión cerrada.', true);
+
+// al recargar la pestaña se vuelve a comprobar que el correo siga registrado (y con qué rol)
+(async () => {
+  let ses = null; try { ses = JSON.parse(sessionStorage.getItem(SESSION_KEY)); } catch (e) {}
+  if (!ses) return lock();
+  const sesMail = ses.correo;
+  lock('Verificando sesión…', true);
+  try {
+    const u = (await fetchUsers()).find(u => u.correo === sesMail);
+    if (u) enter(u); else lock('Tu usuario ya no está habilitado.');
+  } catch (err) { lock('No se pudo verificar la sesión. Ingresa de nuevo.'); }
+})();
+
 render();
 </script>
 </body>
