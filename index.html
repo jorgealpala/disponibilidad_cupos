@@ -56,7 +56,6 @@ body.locked #login{display:flex}
 .userbox{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);padding-left:6px;border-left:1px solid var(--line)}
 .userbox b{color:var(--ink);font-weight:600}
 body.viewer .admin-only{display:none!important}
-body.viewer main{grid-template-columns:1fr 380px}
 section.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:0;padding:10px 14px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px}
 .card h2 .sp{flex:1}
@@ -189,16 +188,16 @@ dialog#admin::backdrop{background:rgba(20,28,38,.55)}
   <h1>Concurso Fiscalía 2026<small>Audiencia de escogencia de vacantes</small></h1>
   <div class="kpis" id="kpis"></div>
   <div class="tools">
-    <button id="bUndo" class="admin-only" title="Ctrl+Z">↶ Deshacer</button>
-    <button id="bProj" class="admin-only" title="Oculta el panel de control">Modo proyección</button>
+    <button id="bUndo" title="Ctrl+Z">↶ Deshacer</button>
+    <button id="bProj" title="Oculta el panel de control">Modo proyección</button>
     <button id="bAdmin" class="admin-only" title="Editar cupos ofertados (solo administradores)">⚙ Administrar cupos</button>
-    <button id="bReset" class="danger admin-only">Reiniciar</button>
+    <button id="bReset" class="danger">Reiniciar</button>
     <div class="userbox"><span><b id="uMail"></b><br><span id="uRol"></span></span><button id="bLogout" class="sm">Salir</button></div>
   </div>
 </header>
 
 <main id="main">
-  <section class="card admin-only" id="panel">
+  <section class="card" id="panel">
     <h2>Registrar escogencia</h2>
     <form id="reg" autocomplete="off">
       <div class="full"><label for="fName">Nombre de la persona</label><input id="fName" placeholder="Opcional"></div>
@@ -295,13 +294,12 @@ function load() {
   return null;
 }
 function save() { try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) {} }
-function mutate(fn, msg) {
-  if (role !== 'admin') return toast('Tu usuario es de solo consulta');
+function mutate(fn, msg, soloAdmin) {   // soloAdmin: acción reservada al perfil admin (p. ej. editar cupos)
+  if (soloAdmin && role !== 'admin') return toast('Esta acción es solo para administradores');
   history.push(JSON.stringify(state)); if (history.length > 200) history.shift();
   fn(); save(); render(); if (msg) toast(msg, true);
 }
 function undo() {
-  if (role !== 'admin') return;
   if (!history.length) return toast('No hay acciones para deshacer');
   state = JSON.parse(history.pop()); save(); render(); toast('Acción deshecha');
 }
@@ -715,7 +713,7 @@ document.getElementById('admSave').onclick = () => {
       state.adminLog.push({ t: new Date().toISOString(), id: p.id, from: p.cupos, to: draft[p.id] });
       if (draft[p.id] === p.orig) delete state.cupos[p.id]; else state.cupos[p.id] = draft[p.id];
     });
-  }, `Cupos actualizados (${ch.length} vacante${ch.length > 1 ? 's' : ''})`);
+  }, `Cupos actualizados (${ch.length} vacante${ch.length > 1 ? 's' : ''})`, true);
   adm.close();
 };
 document.getElementById('admClose').onclick = () => adm.close();
@@ -779,12 +777,12 @@ async function fetchUsers() {
   }));
 }
 function enter(user) {
-  role = user.rol;
+  role = user.rol; history = [];   // cada sesión deshace solo sus propias acciones
   try { sessionStorage.setItem(SESSION_KEY, JSON.stringify({ correo: user.correo })); } catch (e) {}
   document.body.classList.remove('locked');
   document.body.classList.toggle('viewer', role !== 'admin');
   document.getElementById('uMail').textContent = user.correo;
-  document.getElementById('uRol').textContent = role === 'admin' ? 'Administrador' : 'Solo consulta';
+  document.getElementById('uRol').textContent = role === 'admin' ? 'Administrador' : 'Operador';
   render();
 }
 function lock(msg, info) {
